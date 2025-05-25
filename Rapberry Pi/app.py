@@ -2,32 +2,38 @@ import asyncio
 from bleak import BleakClient, BleakScanner
 import RPi.GPIO as GPIO
 
-LED_PIN = 18
-SERVICE_UUID = "180C"
-CHAR_UUID    = "1A79"
+RED_LED = 18
+GREEN_LED = 23
+DEVICE_NAME = "distanceMonitor"
+CHAR_UUID = "5678"
 
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(LED_PIN, GPIO.OUT)
-pwm = GPIO.PWM(LED_PIN, 1000)  # 1 kHz
-pwm.start(0)
+GPIO.setup(RED_LED, GPIO.OUT)
+GPIO.setup(GREEN_LED, GPIO.OUT)
+GPIO.output(RED_LED, GPIO.LOW)
+GPIO.output(GREEN_LED, GPIO.LOW)
 
 def notification_handler(_, data):
     level = int.from_bytes(data, byteorder="little")
-    # Map 0?1023 to 0?100% PWM
-    duty = max(0, min(100, level * 100 // 1023))
-    pwm.ChangeDutyCycle(duty)
-    print(f"Light={level}, PWM={duty}%")
+    print(f"Level={level}")
+    if level <= 30 and level > 10:
+        GPIO.output(GREEN_LED, GPIO.HIGH)
+        GPIO.output(RED_LED, GPIO.LOW)
+    elif level <= 10:
+        GPIO.output(RED_LED, GPIO.HIGH)
+        GPIO.output(GREEN_LED, GPIO.LOW)
+    else:
+        GPIO.output(RED_LED, GPIO.LOW)
+        GPIO.output(GREEN_LED, GPIO.LOW)
 
 async def run():
-    devices = await BleakScanner.discover()
-    target = next((d for d in devices if d.name == "distanceMonitor"), None)
+    devices = await BleakScanner.discover(timeout=2.0)
+    target = next((d for d in devices if d.name == DEVICE_NAME), None)
     if not target:
         print("Sensor not found")
         return
-
     async with BleakClient(target.address) as client:
         await client.start_notify(CHAR_UUID, notification_handler)
-        print("Receiving sensor updates?press Ctrl+C to stop")
         while True:
             await asyncio.sleep(1)
 
@@ -37,5 +43,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     finally:
-        pwm.stop()
         GPIO.cleanup()
